@@ -552,6 +552,121 @@ with tab4:
             mime="text/csv",
         )
 
+══════════════════════════════════════════════
+TAB 5 – SIMULASI MONTE CARLO
+══════════════════════════════════════════════
+with tab5:
+    st.markdown('<p class="section-title">🎲 Simulasi Monte Carlo: Risiko Keuangan</p>', unsafe_allow_html=True)
+    st.markdown("Simulasi ini memproyeksikan probabilitas kehabisan uang dan distribusi sisa uang bulanan berdasarkan **10.000 iterasi acak**, menggunakan distribusi empiris dari data survei yang sedang aktif (sesuai filter sidebar).")
+    
+    col_sim1, col_sim2 = st.columns(2)
+    with col_sim1:
+        sim_uang_saku = st.selectbox("💵 Skenario Uang Saku:", ORDER_UANG_SAKU, index=1)
+    with col_sim2:
+        sim_budgeting = st.selectbox("📒 Skenario Budgeting:", ["Ya", "Tidak"])
+        
+    if st.button("🚀 Jalankan Simulasi Monte Carlo", type="primary"):
+        with st.spinner("Menjalankan 10.000 iterasi simulasi..."):
+            n_sim = 10000
+            
+            # 1. Ambil data referensi berdasarkan skenario yang dipilih
+            ref_data = filtered[(filtered["uang_saku"] == sim_uang_saku) & (filtered["budgeting"] == sim_budgeting)]
+            
+            # Fallback jika data hasil filter terlalu sedikit, agar simulasi tetap berjalan
+            if len(ref_data) < 5:
+                ref_data = filtered[filtered["uang_saku"] == sim_uang_saku]
+            if len(ref_data) < 5:
+                ref_data = filtered 
+                
+            # 2. Fungsi vectorized untuk mapping kategori ke nilai numerik (midpoint + random uniform dalam range)
+            def map_to_numeric(series, jenis):
+                res = np.zeros(len(series))
+                s_str = series.astype(str)
+                if jenis == "uang_saku":
+                    res = np.where(s_str.str.contains("< Rp 500.000", na=False), np.random.uniform(100000, 499000, len(series)), res)
+                    res = np.where(s_str.str.contains("Rp 500.000 - Rp 1.000.000", na=False), np.random.uniform(500000, 1000000, len(series)), res)
+                    res = np.where(s_str.str.contains("Rp 1.000.001 - Rp 1.500.000", na=False), np.random.uniform(1000001, 1500000, len(series)), res)
+                    res = np.where(s_str.str.contains("> Rp 1.500.001", na=False), np.random.uniform(1500001, 2500000, len(series)), res)
+                elif jenis == "pengeluaran":
+                    res = np.where(s_str.str.contains("< Rp 500.000", na=False), np.random.uniform(100000, 499000, len(series)), res)
+                    res = np.where(s_str.str.contains("Rp 500.000 - Rp 700.000", na=False), np.random.uniform(500000, 700000, len(series)), res)
+                    res = np.where(s_str.str.contains("Rp 700.001 - Rp 1.000.000", na=False), np.random.uniform(700001, 1000000, len(series)), res)
+                    res = np.where(s_str.str.contains("> Rp 1.000.001", na=False), np.random.uniform(1000001, 1500000, len(series)), res)
+                return res
+            
+            # 3. Jalankan Simulasi (Bootstrap sampling dari data historis)
+            sampled_us = np.random.choice(ref_data["uang_saku"].values, size=n_sim)
+            sampled_exp = np.random.choice(ref_data["total_pengeluaran"].values, size=n_sim)
+            sampled_khabis = np.random.choice(ref_data["kehabisan_uang"].values, size=n_sim)
+            
+            # Konversi ke numerik
+            vals_us = map_to_numeric(pd.Series(sampled_us), "uang_saku")
+            vals_exp = map_to_numeric(pd.Series(sampled_exp), "pengeluaran")
+            
+            # Hitung sisa uang
+            sisa_uang = vals_us - vals_exp
+            
+            # 4. Hitung Metrik Statistik
+            prob_khabis = np.mean(sampled_khabis == "Ya") * 100
+            mean_sisa = np.mean(sisa_uang)
+            risk_sisa_negatif = np.mean(sisa_uang < 0) * 100
+            p5_sisa = np.percentile(sisa_uang, 5)
+            p95_sisa = np.percentile(sisa_uang, 95)
+            
+            # Hitung baseline global untuk perbandingan delta
+            overall_khabis = np.mean(filtered["kehabisan_uang"] == "Ya") * 100
+            delta_khabis = prob_khabis - overall_khabis
+            
+            # 5. Tampilkan Output KPI
+            kpi1, kpi2, kpi3 = st.columns(3)
+            kpi1.metric(
+                "📉 Probabilitas Kehabisan Uang", 
+                f"{prob_khabis:.1f}%", 
+                delta=f"{delta_khabis:+.1f}% vs rata-rata", 
+                delta_color="inverse" if prob_khabis > overall_khabis else "normal"
+            )
+            kpi2.metric(
+                "💰 Rata-rata Sisa Uang", 
+                f"Rp {mean_sisa:,.0f}"
+            )
+            kpi3.metric(
+                "⚠️ Risiko Defisit (Sisa < 0)", 
+                f"{risk_sisa_negatif:.1f}%"
+            )
+            
+            st.markdown("---")
+            
+            # 6. Visualisasi Distribusi Sisa Uang
+            st.markdown('<p class="section-title">📊 Distribusi Sisa Uang Bulanan (10.000 Simulasi)</p>', unsafe_allow_html=True)
+            
+            df_sim = pd.DataFrame({"Sisa Uang": sisa_uang})
+            fig_sim = px.histogram(
+                df_sim, x="Sisa Uang", nbins=50,
+                color_discrete_sequence=["#6366f1"],
+                marginal="box",
+                opacity=0.8
+            )
+            # Tambahkan garis vertikal di 0 (Titik Impas)
+            fig_sim.add_vline(x=0, line_dash="dash", line_color="#f43f5e", annotation_text="Titik Impas (Rp 0)")
+            
+            fig_sim.update_layout(
+                xaxis_title="Sisa Uang (Rp)",
+                yaxis_title="Frekuensi",
+                showlegend=False,
+                hovermode="x unified"
+            )
+            style_fig(fig_sim)
+            st.plotly_chart(fig_sim, use_container_width=True)
+            
+            # 7. Insight / Interpretasi Otomatis
+            st.info(f"""
+            💡 **Interpretasi Simulasi:**
+            - Berdasarkan profil **Uang Saku: {sim_uang_saku}** dan **Budgeting: {sim_budgeting}**, simulasi menunjukkan rata-rata sisa uang sebesar **Rp {mean_sisa:,.0f}**.
+            - Terdapat risiko **{risk_sisa_negatif:.1f}%** di mana pengeluaran melebihi uang saku (defisit).
+            - Rentang sisa uang yang paling mungkin terjadi (90% confidence interval) adalah antara **Rp {p5_sisa:,.0f}** hingga **Rp {p95_sisa:,.0f}**.
+            - Area histogram di sebelah kiri garis merah (Rp 0) merepresentasikan skenario kehabisan uang sebelum akhir bulan.
+            """)
+
 # ─────────────────────────────────────────────
 # FOOTER
 # ─────────────────────────────────────────────
