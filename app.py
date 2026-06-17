@@ -552,9 +552,9 @@ with tab4:
             mime="text/csv",
         )
 
-══════════════════════════════════════════════
-TAB 5 – SIMULASI MONTE CARLO
-══════════════════════════════════════════════
+# ══════════════════════════════════════════════
+# TAB 5 – SIMULASI MONTE CARLO
+# ══════════════════════════════════════════════
 with tab5:
     st.markdown('<p class="section-title">🎲 Simulasi Monte Carlo: Risiko Keuangan</p>', unsafe_allow_html=True)
     st.markdown("Simulasi ini memproyeksikan probabilitas kehabisan uang dan distribusi sisa uang bulanan berdasarkan **10.000 iterasi acak**, menggunakan distribusi empiris dari data survei yang sedang aktif (sesuai filter sidebar).")
